@@ -76,13 +76,14 @@ The CDN version pins the exact version (11.17.2) and uses an [integrity hash](ht
 
 - **Arrow A → B** means *A blocks B*.
 - **Dashed arrow** — the blocker is already closed (resolved dependency).
-- **Arrow labeled "from description"** — dependency parsed from issue text, not a native GitHub link.
+- **Arrow labeled "from description"** — dependency parsed from issue text. The label appears only when the graph mixes native GitHub links and text-based ones.
 - **Colors:**
   - red — blocked by at least one open issue
   - yellow — not blocked, and blocks other open issues (good candidates to start)
   - grey — open, no open dependencies in either direction
   - green — closed
 - Click a node to open the issue on GitHub.
+- **Dashed violet frames** group issues by epic (see *group by epic* below).
 - Issues from other repositories are shown as `org/other-repo#N`.
 
 Side panels:
@@ -96,7 +97,8 @@ Side panels:
 | Direction | Horizontal (→) or vertical (↓) layout. |
 | open only | Hide closed issues. In token mode it also fetches only open issues; change it and fetch again to load closed ones. |
 | only issues with dependencies | Hide issues with no links. |
-| also parse "blocked by #N" from descriptions | Also read text references: `blocked by`, `depends on` (plus Polish `zablokowane przez`, `zależy od`), e.g. `Blocked by #12, #15`. |
+| also read "Depends on / Blocked by" from descriptions | On by default. Reads dependency lines in issue text — `Depends on:`, `Blocked by:`, `Requires:`, `Dependencies:` (plus Polish `Zależy od:`, `Zablokowane przez:`). Every issue reference after the keyword on that line counts: `#12`, Markdown links like `[#12](https://…/issues/12) (E01-S01)`, issue URLs and `org/repo#12`. Other lines (e.g. `Epic: #21`) are ignored. |
+| group by epic | On by default. Draws a dashed frame around issues of the same epic, taken from an `Epic:` line in the description (also `Parent:` / `Parent issue:` / `Epik:`), e.g. `Epic: [#21](https://…/issues/21) (E02)`. The frame shows the code in parentheses, the epic number and the epic issue's title. Issues without an `Epic:` line stay outside frames. |
 | Focus on # | Show only the chain connected to one issue (everything it depends on and everything that depends on it). |
 | Redraw | Re-render with the current options without fetching again. |
 | − / Fit / + | Zoom. Ctrl + mouse wheel also zooms. |
