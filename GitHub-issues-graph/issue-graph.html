@@ -3799,7 +3799,7 @@ globalThis["mermaid"] = globalThis.__esbuild_esm_mermaid_nm["mermaid"].default;
     <label>Direction<select id="dir"><option value="LR">→ horizontal</option><option value="TD">↓ vertical</option></select></label>
     <label class="chk"><input type="checkbox" id="openOnly" checked> open only</label>
     <label class="chk"><input type="checkbox" id="linkedOnly" checked> only issues with dependencies</label>
-    <label class="chk"><input type="checkbox" id="parseText"> also parse “blocked by #N” from descriptions</label>
+    <label class="chk"><input type="checkbox" id="parseText" checked> also read “Depends on / Blocked by” from descriptions</label>
     <label>Focus on #<input type="text" id="focus" placeholder="e.g. 42"></label>
     <button class="primary live" id="go" type="submit">Fetch &amp; draw</button>
     <button type="button" id="redraw" disabled>Redraw</button>
@@ -3835,7 +3835,7 @@ let issuesCache=null, repoCache='', zoom=1, seq=0;
 // --- init form ---
 $('repo').value=store.get('ig.repo')||'';
 const savedTok=store.get('ig.token'); if(savedTok){$('token').value=savedTok;$('remember').checked=true;}
-['dir','openOnly','linkedOnly','parseText'].forEach(id=>{const v=store.get('ig.'+id); if(v!=null){ if($(id).type==='checkbox')$(id).checked=v==='1'; else $(id).value=v; }});
+['dir','openOnly','linkedOnly','parseText'].forEach(id=>{const v=store.get('ig.'+(id==='parseText'?'parseText2':id)); if(v!=null){ if($(id).type==='checkbox')$(id).checked=v==='1'; else $(id).value=v; }});
 
 function setStatus(msg,err){const s=$('status');s.textContent=msg;s.className=err?'err':'';}
 
@@ -3905,11 +3905,27 @@ async function fetchIssues(repo,token,onlyOpen){
   return all;
 }
 
+// Reads dependencies written in issue text, e.g.
+//   Depends on: [#23](https://host/org/repo/issues/23) (E01-S01), #24, org/repo#25
+//   Blocked by #12 and #15        **Zależy od:** #7
+// Everything after the keyword up to the end of that line is scanned for issue references
+// (#N, [#N](url), issue URLs, owner/repo#N). Returns [{repo|null, num}] — repo null means "this repo".
 function parseBody(body){
-  const out=new Set();
-  const re=/(?:blocked\s+by|depends\s+on|zablokowane\s+przez|zależy\s+od)\s*:?\s*((?:#\d+[\s,]*(?:and|i|oraz)?\s*)+)/gi;
-  let m; while((m=re.exec(body))){ (m[1].match(/#\d+/g)||[]).forEach(x=>out.add(+x.slice(1))); }
-  return [...out];
+  const out=new Map();
+  const kw=/(?:depends?\s+on|dependencies|blocked\s+by|requires|zależy\s+od|zależności|zablokowane\s+przez)[*_\s]*:?[*_\s]*(.*)$/gim;
+  const ref=/https?:\/\/[^\/\s)]+\/([^\/\s)]+)\/([^\/\s)]+)\/(?:issues|pull)\/(\d+)|\b([\w.-]+)\/([\w.-]+)#(\d+)|(?:^|[^\w\/&])#(\d+)\b/g;
+  let m;
+  while((m=kw.exec(body))){
+    const rest=m[1]; let r; ref.lastIndex=0;
+    while((r=ref.exec(rest))){
+      let repo=null,num;
+      if(r[3]){repo=r[1]+'/'+r[2];num=+r[3];}
+      else if(r[6]){repo=r[4]+'/'+r[5];num=+r[6];}
+      else num=+r[7];
+      out.set((repo||'').toLowerCase()+'#'+num,{repo,num});
+    }
+  }
+  return [...out.values()];
 }
 
 function esc(s){return String(s).replace(/[\r\n`]/g,' ').replace(/#/g,'#35;').replace(/"/g,'#quot;').replace(/</g,'#lt;').replace(/>/g,'#gt;');}
@@ -3924,7 +3940,7 @@ function build(issues,repoFull,o){
   for(const is of issues){
     const to=keyOf(repoFull,is.number);
     for(const b of (is.blockedBy?.nodes||[])){if(!b||!b.repository)continue;const from=addNode(b,b.repository.nameWithOwner);edges.set(from+'>'+to,{from,to,text:false});}
-    if(o.parseText&&is.body){for(const n of parseBody(is.body)){const from=keyOf(repoFull,n);if(from===to||!nodes.has(from))continue;const id=from+'>'+to;if(!edges.has(id))edges.set(id,{from,to,text:true});}}
+    if(o.parseText&&is.body){for(const d of parseBody(is.body)){const from=keyOf(d.repo||repoFull,d.num);if(from===to||!nodes.has(from))continue;const id=from+'>'+to;if(!edges.has(id))edges.set(id,{from,to,text:true});}}
   }
   // statuses are computed on the full graph
   const inE=new Map(),outE=new Map();
@@ -3961,9 +3977,10 @@ function toMermaid(g,o){
     if(n.assignee) label+='<br/><small>@'+esc(n.assignee)+'</small>';
     L.push(`  ${k}["${label}"]:::${n.cls}${n.ext?'':''}`);
   }
+  const mixed=g.vEdges.some(e=>e.text)&&g.vEdges.some(e=>!e.text); // label text-based links only when both kinds are shown
   for(const e of g.vEdges){
     const resolved=g.nodes.get(e.from).state!=='OPEN';
-    L.push(`  ${e.from} ${resolved?'-.->':'-->'}${e.text?'|from description|':''} ${e.to}`);
+    L.push(`  ${e.from} ${resolved?'-.->':'-->'}${e.text&&mixed?'|from description|':''} ${e.to}`);
   }
   L.push('  classDef blocked fill:#2a0b1a,stroke:#ff3d81,color:#ffd6e5,stroke-width:2px');
   L.push('  classDef ready fill:#261b05,stroke:#fbbf24,color:#fff1c7,stroke-width:2px');
@@ -4041,7 +4058,7 @@ $('f').addEventListener('submit',async ev=>{
   if(!R){setStatus('Enter the repository as owner/repo or paste its URL (e.g. https://github.example.com/org/repo).',true);return;}
   const repo=R.full;
   store.set('ig.repo',raw); store.set('ig.token',$('remember').checked?token:null);
-  ['dir','openOnly','linkedOnly','parseText'].forEach(id=>store.set('ig.'+id,$(id).type==='checkbox'?($(id).checked?'1':'0'):$(id).value));
+  ['dir','openOnly','linkedOnly','parseText'].forEach(id=>store.set('ig.'+(id==='parseText'?'parseText2':id),$(id).type==='checkbox'?($(id).checked?'1':'0'):$(id).value));
   $('go').disabled=true;
   try{
     setStatus('Fetching…'); gqlWarnings.clear();
